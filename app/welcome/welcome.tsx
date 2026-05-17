@@ -5,6 +5,7 @@ import { CandlestickChart } from "~/components/candlestick-chart";
 import {
   analyzeCandles,
   candlesToCsv,
+  getTradeSuggestion,
   parseCsv,
   predictFutureCandles,
 } from "~/lib/gold-analysis";
@@ -89,6 +90,38 @@ function getDataSourceLabel(liveMarket: LiveGoldSnapshot | null): string {
   return `${liveMarket.source} ${liveMarket.symbol}`;
 }
 
+function formatPrice(value: number | null): string {
+  return value === null ? "Wait" : value.toFixed(2);
+}
+
+function getTradeActionTone(action: "buy" | "sell" | "wait"): {
+  badgeClassName: string;
+  panelClassName: string;
+  title: string;
+} {
+  if (action === "buy") {
+    return {
+      badgeClassName: "border-emerald-200 bg-white text-emerald-700",
+      panelClassName: "border-emerald-200 bg-emerald-50/80",
+      title: "Buy setup",
+    };
+  }
+
+  if (action === "sell") {
+    return {
+      badgeClassName: "border-rose-200 bg-white text-rose-700",
+      panelClassName: "border-rose-200 bg-rose-50/80",
+      title: "Sell setup",
+    };
+  }
+
+  return {
+    badgeClassName: "border-amber-200 bg-white text-amber-700",
+    panelClassName: "border-amber-200 bg-amber-50/80",
+    title: "Wait setup",
+  };
+}
+
 export function Welcome({
   liveMarket,
   liveMarketError,
@@ -100,7 +133,9 @@ export function Welcome({
   const candles = useMemo(() => parseCsv(csv), [csv]);
   const result = useMemo(() => analyzeCandles(candles), [candles]);
   const prediction = useMemo(() => predictFutureCandles(candles), [candles]);
+  const tradeSuggestion = useMemo(() => getTradeSuggestion(candles), [candles]);
   const scoreTone = result ? getScoreTone(result.score) : null;
+  const tradeTone = tradeSuggestion ? getTradeActionTone(tradeSuggestion.action) : null;
   const isRefreshing = state === "loading";
   const hasLiveFeed = liveMarket !== null;
 
@@ -137,71 +172,32 @@ export function Welcome({
                 value={result?.pattern.name ?? "Waiting"}
               />
               <MetricCard
-                label="Source"
-                value={hasLiveFeed ? "Live feed" : "Manual"}
+                label="Structure"
+                value={result?.marketStructure.label ?? "Waiting"}
               />
               <MetricCard
-                label="Forecast"
-                value={prediction?.confidenceLabel ?? "Pending"}
+                label="Source"
+                value={hasLiveFeed ? "Live feed" : "Manual"}
               />
             </div>
           </div>
         </section>
 
-        <section className="grid flex-1 gap-6 xl:grid-cols-[1.45fr_0.75fr]">
-          <div className="flex flex-col gap-6">
-            <CandlestickChart
-              candles={candles}
-              futureCandles={prediction?.projectedCandles ?? []}
-              height={540}
-              title="Live Candlestick Visualization"
-            />
+        <section className="flex flex-1 flex-col gap-6">
+          <CandlestickChart
+            candles={candles}
+            futureCandles={prediction?.projectedCandles ?? []}
+            height={620}
+            title="Live Candlestick Visualization"
+          />
 
-            <div className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-zinc-200/60 backdrop-blur">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-zinc-950">OHLC CSV Input</h2>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    Required columns: <span className="font-medium">time, open, high, low, close</span>
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCsv(sampleData)}
-                    className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
-                  >
-                    Load sample
-                  </button>
-                  {liveCsv ? (
-                    <button
-                      type="button"
-                      onClick={() => setCsv(liveCsv)}
-                      className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
-                    >
-                      Use live candles
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              <textarea
-                value={csv}
-                onChange={(event) => setCsv(event.target.value)}
-                className="mt-5 min-h-[22rem] w-full rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 px-4 py-4 font-mono text-sm leading-6 text-zinc-800 outline-none transition focus:border-amber-400 focus:bg-white focus:ring-4 focus:ring-amber-100"
-                aria-label="Gold OHLC CSV input"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-6">
-            <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-zinc-200/60 backdrop-blur">
-              <div className="flex items-start justify-between gap-4">
+          <div className="grid gap-6 xl:grid-cols-[0.58fr_1.42fr]">
+            <section className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg shadow-zinc-200/60 backdrop-blur">
+              <div className="flex items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-semibold text-zinc-950">Live market feed</h2>
                   <p className="mt-1 text-sm text-zinc-500">
-                    Recommended API: {recommendedApi.name}
+                    {recommendedApi.name}
                   </p>
                 </div>
 
@@ -210,7 +206,7 @@ export function Welcome({
                     type="button"
                     onClick={() => revalidate()}
                     disabled={isRefreshing}
-                    className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isRefreshing ? "Refreshing..." : "Refresh live feed"}
                   </button>
@@ -218,44 +214,46 @@ export function Welcome({
               </div>
 
               {hasLiveFeed ? (
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="text-sm font-medium text-emerald-800">
-                      Live feed connected
-                    </p>
-                    <p className="mt-2 text-2xl font-semibold text-emerald-950">
+                <div className="mt-4 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="flex flex-wrap items-end justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-emerald-800">
+                        Live feed connected
+                      </p>
+                      <p className="mt-1 text-3xl font-semibold text-emerald-950">
                       {liveMarket.latestPrice?.toFixed(2) ?? "N/A"}
-                    </p>
-                    <p className="mt-2 text-sm text-emerald-900">
-                      {liveMarket.symbol} | {liveMarket.interval} candles
-                    </p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-700">
-                      Last candle {liveMarket.asOf ?? "Unknown"}
-                    </p>
+                      </p>
+                    </div>
+                    <div className="text-right text-sm text-emerald-900">
+                      <p>{liveMarket.symbol} | {liveMarket.interval}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-emerald-700">
+                        {liveMarket.asOf ?? "Unknown"}
+                      </p>
+                    </div>
                   </div>
-
-                  <div className="rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 p-4 text-sm leading-7 text-zinc-600">
-                    {recommendedApi.note}{" "}
+                  <p className="mt-3 text-xs leading-5 text-emerald-800">
+                    Server-side OHLC feed from{" "}
                     <a
                       href={recommendedApi.docsUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-medium text-amber-700 underline decoration-amber-300 underline-offset-4"
+                      className="font-semibold underline decoration-emerald-300 underline-offset-4"
                     >
-                      View docs
+                      {recommendedApi.name}
                     </a>
-                  </div>
+                    .
+                  </p>
                 </div>
               ) : (
-                <div className="mt-4 rounded-[1.5rem] border border-dashed border-zinc-300 bg-zinc-50/80 p-5 text-sm leading-7 text-zinc-600">
+                <div className="mt-4 rounded-[1.5rem] border border-dashed border-zinc-300 bg-zinc-50/80 p-4 text-sm leading-7 text-zinc-600">
                   <p>
-                    Live feed is not active yet. Add a server env var named{" "}
+                    Add{" "}
                     <span className="font-semibold text-zinc-900">TWELVE_DATA_API_KEY</span>{" "}
                     and optionally{" "}
                     <span className="font-semibold text-zinc-900">TWELVE_DATA_SYMBOL</span>{" "}
-                    such as <span className="font-semibold text-zinc-900">XAU/USD</span>.
+                    for <span className="font-semibold text-zinc-900">XAU/USD</span>.
                   </p>
-                  <p className="mt-3">
+                  <p className="mt-2">
                     {liveMarketError ?? recommendedApi.note}{" "}
                     <a
                       href={recommendedApi.docsUrl}
@@ -277,13 +275,16 @@ export function Welcome({
               </p>
 
               {result ? (
-                <div className="mt-4 space-y-4">
-                  <div className={`rounded-[1.5rem] border p-4 ${scoreTone?.panelClassName ?? ""}`}>
-                    <p className="text-sm font-medium text-zinc-600">Probable trend read</p>
-                    <p className="mt-2 text-2xl font-semibold text-zinc-950">
+                <div className="mt-4 grid gap-4 xl:grid-cols-4">
+                  <div className={`flex min-h-56 flex-col rounded-[1.5rem] border p-4 ${scoreTone?.panelClassName ?? ""}`}>
+                    <p className="text-sm font-medium text-zinc-600">Trend read</p>
+                    <p className="mt-2 text-xl font-semibold leading-tight text-zinc-950">
                       {result.direction}
                     </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <p className="mt-2 text-sm leading-6 text-zinc-700">
+                      {result.confluenceSummary}
+                    </p>
+                    <div className="mt-auto flex flex-wrap gap-2 pt-4">
                       <span
                         className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${scoreTone?.badgeClassName ?? ""}`}
                       >
@@ -293,49 +294,117 @@ export function Welcome({
                         Trend {result.trend}
                       </span>
                       <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-zinc-600">
-                        {result.pattern.name}
+                        {result.marketStructure.label}
                       </span>
                     </div>
                   </div>
 
-                  <div className="rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 p-4">
-                    <p className="text-sm font-medium text-zinc-700">Pattern explanation</p>
-                    <p className="mt-2 text-sm leading-7 text-zinc-600">
+                  <div className="flex min-h-56 flex-col rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 p-4">
+                    <p className="text-sm font-medium text-zinc-700">Pattern + confirmation</p>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">
                       {result.pattern.reason}
                     </p>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">
+                      {result.confirmation.label}
+                    </p>
+                    <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
+                      <div className="rounded-2xl bg-white/80 px-3 py-2">
+                        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          Near support
+                        </p>
+                        <p className="mt-1 font-semibold text-zinc-950">
+                          {result.nearSupport ? "Yes" : "No"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-white/80 px-3 py-2">
+                        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          Near resistance
+                        </p>
+                        <p className="mt-1 font-semibold text-zinc-950">
+                          {result.nearResistance ? "Yes" : "No"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
+                  {tradeSuggestion && tradeTone ? (
+                    <div className={`flex min-h-56 flex-col rounded-[1.5rem] border p-4 ${tradeTone.panelClassName}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-zinc-800">
+                            Suggested TP / SL
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-zinc-600">
+                            Small target around ${tradeSuggestion.targetProfit.toFixed(0)} from entry.
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${tradeTone.badgeClassName}`}
+                        >
+                          {tradeTone.title}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 grid gap-2">
+                        <div className="rounded-2xl bg-white/80 px-4 py-3">
+                          <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+                            Entry
+                          </p>
+                          <p className="mt-1 text-base font-semibold text-zinc-950">
+                            {formatPrice(tradeSuggestion.entry)}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-2xl bg-white/80 px-4 py-3">
+                            <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+                              TP
+                            </p>
+                            <p className="mt-1 text-base font-semibold text-zinc-950">
+                              {formatPrice(tradeSuggestion.takeProfit)}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-white/80 px-4 py-3">
+                            <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+                              SL
+                            </p>
+                            <p className="mt-1 text-base font-semibold text-zinc-950">
+                              {formatPrice(tradeSuggestion.stopLoss)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="mt-auto pt-3 text-sm leading-6 text-zinc-700">
+                        {tradeSuggestion.summary}
+                      </p>
+                      {tradeSuggestion.riskAmount !== null ? (
+                        <p className="mt-1 text-xs leading-5 text-zinc-600">
+                          Estimated risk distance: ${tradeSuggestion.riskAmount.toFixed(2)}.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   {prediction ? (
-                    <div className="rounded-[1.5rem] border border-sky-200 bg-sky-50/80 p-4">
+                    <div className="flex min-h-56 flex-col rounded-[1.5rem] border border-sky-200 bg-sky-50/80 p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <p className="text-sm font-medium text-sky-900">
-                          Future candlestick analysis prediction
+                          Forecast
                         </p>
                         <span className="rounded-full border border-sky-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
                           {prediction.confidenceLabel} confidence
                         </span>
                       </div>
-                      <p className="mt-2 text-sm leading-7 text-sky-900">
+                      <p className="mt-2 text-sm leading-6 text-sky-900">
                         {prediction.summary}
                       </p>
-                      <p className="mt-2 text-xs leading-6 text-sky-800">
+                      <p className="mt-auto pt-3 text-xs leading-5 text-sky-800">
                         Projected candles are derived from recent candle range,
                         body size, and the current score bias. They are illustrative,
                         not live market data.
                       </p>
                     </div>
                   ) : null}
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <MetricCard
-                      label="Near support"
-                      value={result.nearSupport ? "Yes" : "No"}
-                    />
-                    <MetricCard
-                      label="Near resistance"
-                      value={result.nearResistance ? "Yes" : "No"}
-                    />
-                  </div>
                 </div>
               ) : (
                 <div className="mt-4 rounded-[1.5rem] border border-dashed border-zinc-300 bg-zinc-50/80 p-5 text-sm leading-7 text-zinc-600">
@@ -343,12 +412,14 @@ export function Welcome({
                 </div>
               )}
             </section>
+          </div>
 
+          <div>
             <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-zinc-200/60 backdrop-blur">
               <h2 className="text-xl font-semibold text-zinc-950">Key levels</h2>
 
               {result ? (
-                <div className="mt-4 space-y-3">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                   <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
                     <span className="text-sm text-zinc-500">Last close</span>
                     <span className="font-semibold text-zinc-950">
@@ -373,6 +444,12 @@ export function Welcome({
                       {result.ma8?.toFixed(2) ?? "N/A"}
                     </span>
                   </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                    <span className="text-sm text-zinc-500">20 SMA</span>
+                    <span className="font-semibold text-zinc-950">
+                      {result.ma20?.toFixed(2) ?? "N/A"}
+                    </span>
+                  </div>
                 </div>
               ) : (
                 <p className="mt-4 text-sm leading-7 text-zinc-600">
@@ -381,15 +458,43 @@ export function Welcome({
                 </p>
               )}
             </section>
+          </div>
 
-            <section className="rounded-[2rem] border border-amber-200 bg-amber-50/90 p-6 shadow-sm shadow-amber-100">
-              <h2 className="text-lg font-semibold text-amber-950">Risk note</h2>
-              <p className="mt-2 text-sm leading-7 text-amber-900">
-                A live data feed makes the app fresher, but it still remains a
-                rule-based estimator. The future trend suggestion is an inference
-                from recent candles, not a guaranteed forecast.
-              </p>
-            </section>
+          <div className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-zinc-200/60 backdrop-blur">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-zinc-950">OHLC CSV Input</h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Required columns: <span className="font-medium">time, open, high, low, close</span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCsv(sampleData)}
+                  className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+                >
+                  Load sample
+                </button>
+                {liveCsv ? (
+                  <button
+                    type="button"
+                    onClick={() => setCsv(liveCsv)}
+                    className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+                  >
+                    Use live candles
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            <textarea
+              value={csv}
+              onChange={(event) => setCsv(event.target.value)}
+              className="mt-5 min-h-[22rem] w-full rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 px-4 py-4 font-mono text-sm leading-6 text-zinc-800 outline-none transition focus:border-amber-400 focus:bg-white focus:ring-4 focus:ring-amber-100"
+              aria-label="Gold OHLC CSV input"
+            />
           </div>
         </section>
       </div>
