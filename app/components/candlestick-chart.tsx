@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { Candle } from "~/lib/gold-analysis";
+import type { Candle, MovingAverageOverlay } from "~/lib/gold-analysis";
 
 type CandlestickChartProps = {
   candles: Candle[];
   futureCandles?: Candle[];
   height?: number;
+  movingAverages?: MovingAverageOverlay | null;
   title?: string;
 };
 
@@ -99,6 +100,7 @@ export function CandlestickChart({
   candles,
   futureCandles = [],
   height = 460,
+  movingAverages = null,
   title = "Candlestick View",
 }: CandlestickChartProps): React.JSX.Element {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -200,6 +202,19 @@ export function CandlestickChart({
               Forecast zone
             </span>
           ) : null}
+          {movingAverages !== null ? (
+            <>
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">
+                EMA 9
+              </span>
+              <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-700">
+                EMA 21
+              </span>
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-violet-700">
+                EMA 50
+              </span>
+            </>
+          ) : null}
           {lastClose !== null ? (
             <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-zinc-700">
               Last close {formatPrice(lastClose)}
@@ -279,6 +294,50 @@ export function CandlestickChart({
               strokeDasharray="10 10"
               strokeOpacity="0.45"
             />
+          ) : null}
+
+          {movingAverages !== null ? (
+            ([
+              { color: "#f59e0b", values: movingAverages.ema9 },
+              { color: "#0284c7", values: movingAverages.ema21 },
+              { color: "#7c3aed", values: movingAverages.ema50 },
+            ] as const).map((movingAverage) => {
+              const points = movingAverage.values
+                .map((value, index) => {
+                  if (value === null) {
+                    return null;
+                  }
+
+                  const candle = chartCandles[index];
+
+                  if (candle === undefined) {
+                    return null;
+                  }
+
+                  const y = ((maxPrice - value) / priceRange) * innerHeight;
+
+                  return `${candle.wickX},${y}`;
+                })
+                .filter((point): point is string => point !== null)
+                .join(" ");
+
+              if (points.length === 0) {
+                return null;
+              }
+
+              return (
+                <polyline
+                  key={movingAverage.color}
+                  fill="none"
+                  points={points}
+                  stroke={movingAverage.color}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeOpacity="0.92"
+                  strokeWidth="2.5"
+                />
+              );
+            })
           ) : null}
 
           {chartCandles.map((candle) => {

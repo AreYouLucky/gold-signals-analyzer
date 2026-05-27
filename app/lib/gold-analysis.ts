@@ -34,6 +34,22 @@ export type ConfluenceFactor = {
   score: number;
 };
 
+export type MovingAverageSignal = {
+  alignment: Trend;
+  ema9: number | null;
+  ema21: number | null;
+  ema50: number | null;
+  label: string;
+  preferredEntry: number | null;
+  score: number;
+};
+
+export type MovingAverageOverlay = {
+  ema9: Array<number | null>;
+  ema21: Array<number | null>;
+  ema50: Array<number | null>;
+};
+
 export type AnalysisResult = {
   confirmation: ConfluenceFactor;
   confluence: ConfluenceFactor[];
@@ -41,6 +57,7 @@ export type AnalysisResult = {
   last: Candle;
   ma8: number | null;
   ma20: number | null;
+  movingAverageSignal: MovingAverageSignal;
   marketStructure: MarketStructure;
   support: number;
   supportZone: PriceZone;
@@ -272,6 +289,57 @@ function calculateSma(candles: Candle[], period = 8): number | null {
   const total = recentCandles.reduce((sum, candle) => sum + candle.close, 0);
 
   return total / period;
+}
+
+function calculateEmaSeries(candles: Candle[], period: number): Array<number | null> {
+  if (period <= 0) {
+    return candles.map(() => null);
+  }
+
+  const multiplier = 2 / (period + 1);
+  const emaValues: Array<number | null> = [];
+  let rollingSum = 0;
+  let previousEma: number | null = null;
+
+  candles.forEach((candle, index) => {
+    rollingSum += candle.close;
+
+    if (index < period - 1) {
+      emaValues.push(null);
+      return;
+    }
+
+    if (previousEma === null) {
+      previousEma = rollingSum / period;
+      emaValues.push(previousEma);
+      return;
+    }
+
+    previousEma = (candle.close - previousEma) * multiplier + previousEma;
+    emaValues.push(previousEma);
+  });
+
+  return emaValues;
+}
+
+function getLatestDefinedValue(values: Array<number | null>): number | null {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const value = values[index];
+
+    if (value !== null) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+export function getMovingAverageOverlay(candles: Candle[]): MovingAverageOverlay {
+  return {
+    ema9: calculateEmaSeries(candles, 9),
+    ema21: calculateEmaSeries(candles, 21),
+    ema50: calculateEmaSeries(candles, 50),
+  };
 }
 
 function getAverageRange(candles: Candle[]): number {
@@ -769,6 +837,92 @@ function getRangeFilter(candles: Candle[]): ConfluenceFactor {
   };
 }
 
+function getMovingAverageSignal(candles: Candle[]): MovingAverageSignal {
+  const overlay = getMovingAverageOverlay(candles);
+  const ema9 = getLatestDefinedValue(overlay.ema9);
+  const ema21 = getLatestDefinedValue(overlay.ema21);
+  const ema50 = getLatestDefinedValue(overlay.ema50);
+  const last = candles[candles.length - 1];
+  const averageRange = Math.max(getAverageRange(candles), 0.1);
+
+  if (ema9 === null || ema21 === null) {
+    return {
+      alignment: "neutral",
+      ema9,
+      ema21,
+      ema50,
+      label: "Not enough candles yet for the EMA trend stack.",
+      preferredEntry: null,
+      score: 0,
+    };
+  }
+
+  const hasFullBullishStack = ema50 !== null && last.close > ema9 && ema9 > ema21 && ema21 > ema50;
+  const hasFullBearishStack = ema50 !== null && last.close < ema9 && ema9 < ema21 && ema21 < ema50;
+  const hasFastBullishBias = last.close > ema9 && ema9 >= ema21;
+  const hasFastBearishBias = last.close < ema9 && ema9 <= ema21;
+  const bullishEntry = last.close - ema9 <= averageRange * 0.9 ? ema9 : ema21;
+  const bearishEntry = ema9 - last.close <= averageRange * 0.9 ? ema9 : ema21;
+
+  if (hasFullBullishStack) {
+    return {
+      alignment: "bullish",
+      ema9,
+      ema21,
+      ema50,
+      label: "EMA stack is bullish. TradingView-style pullbacks into EMA 9 or EMA 21 are favored for long entries.",
+      preferredEntry: bullishEntry,
+      score: 2,
+    };
+  }
+
+  if (hasFullBearishStack) {
+    return {
+      alignment: "bearish",
+      ema9,
+      ema21,
+      ema50,
+      label: "EMA stack is bearish. TradingView-style pullbacks into EMA 9 or EMA 21 are favored for short entries.",
+      preferredEntry: bearishEntry,
+      score: -2,
+    };
+  }
+
+  if (hasFastBullishBias) {
+    return {
+      alignment: "bullish",
+      ema9,
+      ema21,
+      ema50,
+      label: "Fast EMAs lean bullish, but the full trend stack is not fully aligned yet.",
+      preferredEntry: ema9,
+      score: 1,
+    };
+  }
+
+  if (hasFastBearishBias) {
+    return {
+      alignment: "bearish",
+      ema9,
+      ema21,
+      ema50,
+      label: "Fast EMAs lean bearish, but the full trend stack is not fully aligned yet.",
+      preferredEntry: ema9,
+      score: -1,
+    };
+  }
+
+  return {
+    alignment: "neutral",
+    ema9,
+    ema21,
+    ema50,
+    label: "EMA stack is mixed, so entries should wait for clearer alignment.",
+    preferredEntry: null,
+    score: 0,
+  };
+}
+
 function getConfluenceSummary(score: number, confluence: ConfluenceFactor[]): string {
   const supportiveFactors = confluence.filter((factor) => factor.score > 0).length;
   const defensiveFactors = confluence.filter((factor) => factor.score < 0).length;
@@ -812,6 +966,7 @@ export function analyzeCandles(candles: Candle[]): AnalysisResult | null {
   const marketStructure = getMarketStructure(candles);
   const confirmation = getConfirmation(candles, supportZone, resistanceZone);
   const rangeFilter = getRangeFilter(candles);
+  const movingAverageSignal = getMovingAverageSignal(candles);
 
   const higherHighs =
     closes.length >= 4 &&
@@ -853,9 +1008,9 @@ export function analyzeCandles(candles: Candle[]): AnalysisResult | null {
       score: marketStructure.score,
     },
     {
-      bias: movingAverageBias,
-      label: `Moving average bias is ${movingAverageBias}.`,
-      score: movingAverageBias === "bullish" ? 1 : movingAverageBias === "bearish" ? -1 : 0,
+      bias: movingAverageSignal.alignment,
+      label: movingAverageSignal.label,
+      score: movingAverageSignal.score,
     },
     {
       bias: pattern.bias,
@@ -908,6 +1063,7 @@ export function analyzeCandles(candles: Candle[]): AnalysisResult | null {
     last,
     ma8,
     ma20,
+    movingAverageSignal,
     marketStructure,
     support,
     supportZone,
@@ -934,6 +1090,7 @@ export function getTradeSuggestion(
   }
 
   const entry = analysis.last.close;
+  const suggestedEntry = analysis.movingAverageSignal.preferredEntry ?? entry;
   const averageRange = Math.max(getAverageRange(candles), 0.1);
   const intervalMinutes = getCandleIntervalMinutes(candles, interval);
   const resolvedTargetProfit = targetProfit ?? getDynamicTargetProfit(candles, interval);
@@ -944,17 +1101,17 @@ export function getTradeSuggestion(
       : clamp(averageRange * 0.9, 10, 18);
   const targetText = `$${resolvedTargetProfit.toFixed(2)}`;
   const zoneBuffer = averageRange * (isIntradayInterval(intervalMinutes) ? 0.6 : 0.35);
-  const buyStopLoss = Math.min(entry - riskAmount, analysis.supportZone.bottom - zoneBuffer);
-  const sellStopLoss = Math.max(entry + riskAmount, analysis.resistanceZone.top + zoneBuffer);
-  const buyRisk = entry - buyStopLoss;
-  const sellRisk = sellStopLoss - entry;
+  const buyStopLoss = Math.min(suggestedEntry - riskAmount, analysis.supportZone.bottom - zoneBuffer);
+  const sellStopLoss = Math.max(suggestedEntry + riskAmount, analysis.resistanceZone.top + zoneBuffer);
+  const buyRisk = suggestedEntry - buyStopLoss;
+  const sellRisk = sellStopLoss - suggestedEntry;
   const tradeGuardReason = getTradeGuardReason(analysis, intervalMinutes);
   const minimumRewardRisk = isIntradayInterval(intervalMinutes) ? 1.15 : 1;
 
   if (tradeGuardReason !== null) {
     return {
       action: "wait",
-      entry,
+      entry: suggestedEntry,
       stopLoss: null,
       takeProfit: null,
       targetProfit: resolvedTargetProfit,
@@ -967,7 +1124,7 @@ export function getTradeSuggestion(
     if (resolvedTargetProfit / buyRisk < minimumRewardRisk) {
       return {
         action: "wait",
-        entry,
+        entry: suggestedEntry,
         stopLoss: null,
         takeProfit: null,
         targetProfit: resolvedTargetProfit,
@@ -978,12 +1135,12 @@ export function getTradeSuggestion(
 
     return {
       action: "buy",
-      entry,
+      entry: suggestedEntry,
       stopLoss: buyStopLoss,
-      takeProfit: entry + resolvedTargetProfit,
+      takeProfit: suggestedEntry + resolvedTargetProfit,
       targetProfit: resolvedTargetProfit,
       riskAmount: buyRisk,
-      summary: `Buy bias from trend, zone, pattern, and confirmation confluence. Target is kept near ${targetText} from entry with the stop placed beyond the demand zone.`,
+      summary: `Buy bias from trend, pattern, and EMA confluence. Preferred entry is near the EMA pullback zone, with the stop placed beyond the demand zone.`,
     };
   }
 
@@ -991,7 +1148,7 @@ export function getTradeSuggestion(
     if (resolvedTargetProfit / sellRisk < minimumRewardRisk) {
       return {
         action: "wait",
-        entry,
+        entry: suggestedEntry,
         stopLoss: null,
         takeProfit: null,
         targetProfit: resolvedTargetProfit,
@@ -1002,18 +1159,18 @@ export function getTradeSuggestion(
 
     return {
       action: "sell",
-      entry,
+      entry: suggestedEntry,
       stopLoss: sellStopLoss,
-      takeProfit: entry - resolvedTargetProfit,
+      takeProfit: suggestedEntry - resolvedTargetProfit,
       targetProfit: resolvedTargetProfit,
       riskAmount: sellRisk,
-      summary: `Sell bias from trend, zone, pattern, and confirmation confluence. Target is kept near ${targetText} from entry with the stop placed beyond the supply zone.`,
+      summary: `Sell bias from trend, pattern, and EMA confluence. Preferred entry is near the EMA pullback zone, with the stop placed beyond the supply zone.`,
     };
   }
 
   return {
     action: "wait",
-    entry,
+    entry: suggestedEntry,
     stopLoss: null,
     takeProfit: null,
     targetProfit: resolvedTargetProfit,

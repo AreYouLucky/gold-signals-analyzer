@@ -6,6 +6,7 @@ import {
   analyzeCandles,
   candlesToCsv,
   getTradeSuggestion,
+  getMovingAverageOverlay,
   parseCsv,
   predictFutureCandles,
 } from "~/lib/gold-analysis";
@@ -133,6 +134,7 @@ export function Welcome({
   const candles = useMemo(() => parseCsv(csv), [csv]);
   const candleInterval = liveMarket?.interval;
   const result = useMemo(() => analyzeCandles(candles), [candles]);
+  const movingAverageOverlay = useMemo(() => getMovingAverageOverlay(candles), [candles]);
   const prediction = useMemo(() => predictFutureCandles(candles, candleInterval), [candles, candleInterval]);
   const tradeSuggestion = useMemo(() => getTradeSuggestion(candles, undefined, candleInterval), [candles, candleInterval]);
   const scoreTone = result ? getScoreTone(result.score) : null;
@@ -189,6 +191,7 @@ export function Welcome({
             candles={candles}
             futureCandles={prediction?.projectedCandles ?? []}
             height={620}
+            movingAverages={movingAverageOverlay}
             title="Live Candlestick Visualization"
           />
 
@@ -308,6 +311,9 @@ export function Welcome({
                     <p className="mt-2 text-sm leading-6 text-zinc-600">
                       {result.confirmation.label}
                     </p>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">
+                      {result.movingAverageSignal.label}
+                    </p>
                     <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
                       <div className="rounded-2xl bg-white/80 px-3 py-2">
                         <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -353,6 +359,9 @@ export function Welcome({
                           </p>
                           <p className="mt-1 text-base font-semibold text-zinc-950">
                             {formatPrice(tradeSuggestion.entry)}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-zinc-500">
+                            EMA-led pullback entry
                           </p>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
@@ -420,7 +429,7 @@ export function Welcome({
               <h2 className="text-xl font-semibold text-zinc-950">Key levels</h2>
 
               {result ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                   <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
                     <span className="text-sm text-zinc-500">Last close</span>
                     <span className="font-semibold text-zinc-950">
@@ -440,15 +449,21 @@ export function Welcome({
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">8 SMA</span>
+                    <span className="text-sm text-zinc-500">EMA 9</span>
                     <span className="font-semibold text-zinc-950">
-                      {result.ma8?.toFixed(2) ?? "N/A"}
+                      {result.movingAverageSignal.ema9?.toFixed(2) ?? "N/A"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">20 SMA</span>
+                    <span className="text-sm text-zinc-500">EMA 21</span>
                     <span className="font-semibold text-zinc-950">
-                      {result.ma20?.toFixed(2) ?? "N/A"}
+                      {result.movingAverageSignal.ema21?.toFixed(2) ?? "N/A"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                    <span className="text-sm text-zinc-500">EMA 50</span>
+                    <span className="font-semibold text-zinc-950">
+                      {result.movingAverageSignal.ema50?.toFixed(2) ?? "N/A"}
                     </span>
                   </div>
                 </div>
