@@ -131,9 +131,10 @@ export function Welcome({
   const liveCsv = useMemo(() => getLiveCsv(liveMarket), [liveMarket]);
   const [csv, setCsv] = useState<string>(liveCsv ?? sampleData);
   const candles = useMemo(() => parseCsv(csv), [csv]);
+  const candleInterval = liveMarket?.interval;
   const result = useMemo(() => analyzeCandles(candles), [candles]);
-  const prediction = useMemo(() => predictFutureCandles(candles), [candles]);
-  const tradeSuggestion = useMemo(() => getTradeSuggestion(candles), [candles]);
+  const prediction = useMemo(() => predictFutureCandles(candles, candleInterval), [candles, candleInterval]);
+  const tradeSuggestion = useMemo(() => getTradeSuggestion(candles, undefined, candleInterval), [candles, candleInterval]);
   const scoreTone = result ? getScoreTone(result.score) : null;
   const tradeTone = tradeSuggestion ? getTradeActionTone(tradeSuggestion.action) : null;
   const isRefreshing = state === "loading";

@@ -3,6 +3,12 @@ import { Welcome } from "../welcome/welcome";
 import type { Route } from "./+types/home";
 import { getLiveGoldSnapshot } from "~/services/gold";
 
+function parseOutputSize(value: string | undefined): number {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 120;
+}
+
 export function meta({}: Route.MetaArgs): Route.MetaDescriptors {
   return [
     { title: "Gold Signals Analyzer" },
@@ -29,6 +35,8 @@ export async function loader(): Promise<{
   };
 
   const apiKey = process.env.TWELVE_DATA_API_KEY;
+  const interval = process.env.TWELVE_DATA_INTERVAL ?? "5min";
+  const outputSize = parseOutputSize(process.env.TWELVE_DATA_OUTPUT_SIZE);
   const symbol = process.env.TWELVE_DATA_SYMBOL ?? "XAU/USD";
 
   if (!apiKey) {
@@ -42,8 +50,8 @@ export async function loader(): Promise<{
   try {
     const liveMarket = await getLiveGoldSnapshot({
       apiKey,
-      interval: "1h",
-      outputSize: 60,
+      interval,
+      outputSize,
       symbol,
     });
 
