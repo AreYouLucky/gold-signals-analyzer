@@ -22,6 +22,8 @@ type WelcomeProps = {
   };
 };
 
+type DataMode = "live" | "manual";
+
 const sampleData = `time,open,high,low,close
 2026-01-01,2340,2354,2332,2350
 2026-01-02,2350,2366,2348,2361
@@ -66,11 +68,11 @@ function MetricCard({
   value: string;
 }): React.JSX.Element {
   return (
-    <div className="rounded-2xl border border-white/70 bg-white/85 p-4 shadow-sm shadow-zinc-200/70 backdrop-blur">
-      <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
+    <div className="rounded-2xl border border-white/70 bg-white/85 p-3 shadow-sm shadow-zinc-200/70 backdrop-blur">
+      <p className="text-[0.65rem] font-medium uppercase tracking-[0.18em] text-zinc-500">
         {label}
       </p>
-      <p className="mt-2 text-xl font-semibold text-zinc-900">{value}</p>
+      <p className="mt-1.5 text-lg font-semibold text-zinc-900">{value}</p>
     </div>
   );
 }
@@ -130,6 +132,7 @@ export function Welcome({
 }: WelcomeProps): React.JSX.Element {
   const { revalidate, state } = useRevalidator();
   const liveCsv = useMemo(() => getLiveCsv(liveMarket), [liveMarket]);
+  const [dataMode, setDataMode] = useState<DataMode>(liveCsv === null ? "manual" : "live");
   const [csv, setCsv] = useState<string>(liveCsv ?? sampleData);
   const candles = useMemo(() => parseCsv(csv), [csv]);
   const candleInterval = liveMarket?.interval;
@@ -141,26 +144,43 @@ export function Welcome({
   const tradeTone = tradeSuggestion ? getTradeActionTone(tradeSuggestion.action) : null;
   const isRefreshing = state === "loading";
   const hasLiveFeed = liveMarket !== null;
+  const isUsingLiveCandles = dataMode === "live" && liveCsv !== null;
 
   useEffect(() => {
-    if (liveCsv !== null) {
+    if (dataMode === "live" && liveCsv !== null) {
       setCsv(liveCsv);
     }
-  }, [liveCsv]);
+  }, [dataMode, liveCsv]);
+
+  useEffect(() => {
+    if (!hasLiveFeed) {
+      return;
+    }
+
+    const refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        revalidate();
+      }
+    }, 10_000);
+
+    return () => {
+      window.clearInterval(refreshTimer);
+    };
+  }, [hasLiveFeed, revalidate]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.18),_transparent_32%),linear-gradient(180deg,#f8fafc_0%,#fffdf8_48%,#f8fafc_100%)] px-3 py-6 text-zinc-900 sm:px-5 lg:px-8">
       <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-[1800px] flex-col gap-6">
-        <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-amber-100/40 backdrop-blur sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-xl shadow-amber-100/40 backdrop-blur sm:p-7">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-4xl">
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-amber-600">
                 Gold Signals Analyzer
               </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-zinc-950 sm:text-5xl">
+              <h1 className="mt-2.5 text-3xl font-semibold tracking-tight text-zinc-950 sm:text-4xl">
                 Analyze live and manual gold candles with a simple trend model.
               </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-zinc-600 sm:text-base">
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600">
                 This screen can now ingest live gold market candles and run the same
                 rule-based analysis on them. It suggests a probable direction from
                 recent price action, but it does not predict the future with
@@ -168,7 +188,7 @@ export function Welcome({
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:min-w-[720px]">
+            <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4 xl:min-w-[640px]">
               <MetricCard label="Rows parsed" value={String(candles.length)} />
               <MetricCard
                 label="Pattern"
@@ -195,14 +215,19 @@ export function Welcome({
             title="Live Candlestick Visualization"
           />
 
-          <div className="grid gap-6 xl:grid-cols-[0.58fr_1.42fr]">
+          <div className="grid gap-4 xl:grid-cols-[0.72fr_1.28fr]">
             <section className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg shadow-zinc-200/60 backdrop-blur">
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold text-zinc-950">Live market feed</h2>
-                  <p className="mt-1 text-sm text-zinc-500">
+                  <p className="mt-0.5 text-sm text-zinc-500">
                     {recommendedApi.name}
                   </p>
+                  {hasLiveFeed ? (
+                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-zinc-400">
+                      Auto-refreshes every 10 seconds
+                    </p>
+                  ) : null}
                 </div>
 
                 {hasLiveFeed ? (
@@ -219,18 +244,16 @@ export function Welcome({
 
               {hasLiveFeed ? (
                 <div className="mt-4 rounded-[1.5rem] border border-emerald-200 bg-emerald-50 p-4">
-                  <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
                     <div>
-                      <p className="text-sm font-medium text-emerald-800">
-                        Live feed connected
-                      </p>
-                      <p className="mt-1 text-3xl font-semibold text-emerald-950">
-                      {liveMarket.latestPrice?.toFixed(2) ?? "N/A"}
+                      <p className="text-sm font-medium text-emerald-800">Live feed connected</p>
+                      <p className="mt-1 text-2xl font-semibold text-emerald-950">
+                        {liveMarket.latestPrice?.toFixed(2) ?? "N/A"}
                       </p>
                     </div>
-                    <div className="text-right text-sm text-emerald-900">
+                    <div className="grid gap-2 text-sm text-emerald-900 sm:text-right">
                       <p>{liveMarket.symbol} | {liveMarket.interval}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-emerald-700">
+                      <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">
                         {liveMarket.asOf ?? "Unknown"}
                       </p>
                     </div>
@@ -272,23 +295,23 @@ export function Welcome({
               )}
             </section>
 
-            <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-zinc-200/60 backdrop-blur">
+            <section className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg shadow-zinc-200/60 backdrop-blur">
               <h2 className="text-xl font-semibold text-zinc-950">Analysis</h2>
-              <p className="mt-1 text-sm text-zinc-500">
+              <p className="mt-0.5 text-sm text-zinc-500">
                 Current dataset: {getDataSourceLabel(liveMarket)}
               </p>
 
               {result ? (
-                <div className="mt-4 grid gap-4 xl:grid-cols-4">
-                  <div className={`flex min-h-56 flex-col rounded-[1.5rem] border p-4 ${scoreTone?.panelClassName ?? ""}`}>
+                <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_1.1fr_1.35fr_0.95fr]">
+                  <div className={`flex min-h-44 flex-col rounded-[1.5rem] border p-4 ${scoreTone?.panelClassName ?? ""}`}>
                     <p className="text-sm font-medium text-zinc-600">Trend read</p>
-                    <p className="mt-2 text-xl font-semibold leading-tight text-zinc-950">
+                    <p className="mt-1.5 text-lg font-semibold leading-tight text-zinc-950">
                       {result.direction}
                     </p>
                     <p className="mt-2 text-sm leading-6 text-zinc-700">
                       {result.confluenceSummary}
                     </p>
-                    <div className="mt-auto flex flex-wrap gap-2 pt-4">
+                    <div className="mt-auto flex flex-wrap gap-2 pt-3">
                       <span
                         className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${scoreTone?.badgeClassName ?? ""}`}
                       >
@@ -303,18 +326,23 @@ export function Welcome({
                     </div>
                   </div>
 
-                  <div className="flex min-h-56 flex-col rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 p-4">
-                    <p className="text-sm font-medium text-zinc-700">Pattern + confirmation</p>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">
-                      {result.pattern.reason}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">
-                      {result.confirmation.label}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">
-                      {result.movingAverageSignal.label}
-                    </p>
-                    <div className="mt-auto grid grid-cols-2 gap-2 pt-4">
+                  <div className="flex min-h-44 flex-col rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 p-4">
+                    <p className="text-sm font-medium text-zinc-700">Signal checks</p>
+                    <div className="mt-2 space-y-2 text-sm leading-5 text-zinc-600">
+                      <p>
+                        <span className="font-medium text-zinc-800">Pattern:</span> {result.pattern.reason}
+                      </p>
+                      <p>
+                        <span className="font-medium text-zinc-800">Confirmation:</span> {result.confirmation.label}
+                      </p>
+                      <p>
+                        <span className="font-medium text-zinc-800">EMA:</span> {result.movingAverageSignal.label}
+                      </p>
+                      <p>
+                        <span className="font-medium text-zinc-800">Fibonacci:</span> {result.fibonacci.label}
+                      </p>
+                    </div>
+                    <div className="mt-auto grid grid-cols-2 gap-2 pt-3">
                       <div className="rounded-2xl bg-white/80 px-3 py-2">
                         <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                           Near support
@@ -335,14 +363,14 @@ export function Welcome({
                   </div>
 
                   {tradeSuggestion && tradeTone ? (
-                    <div className={`flex min-h-56 flex-col rounded-[1.5rem] border p-4 ${tradeTone.panelClassName}`}>
-                      <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className={`flex min-h-44 flex-col rounded-[1.5rem] border p-4 ${tradeTone.panelClassName}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="text-sm font-medium text-zinc-800">
-                            Suggested TP / SL
+                            Entry + Brackets
                           </p>
-                          <p className="mt-1 text-xs leading-5 text-zinc-600">
-                            Small target around ${tradeSuggestion.targetProfit.toFixed(0)} from entry.
+                          <p className="mt-0.5 text-xs leading-5 text-zinc-600">
+                            Two pullback entries with compact safe and faster brackets.
                           </p>
                         </div>
                         <span
@@ -352,66 +380,67 @@ export function Welcome({
                         </span>
                       </div>
 
-                      <div className="mt-4 grid gap-2">
-                        <div className="rounded-2xl bg-white/80 px-4 py-3">
-                          <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                            Entry
-                          </p>
-                          <p className="mt-1 text-base font-semibold text-zinc-950">
-                            {formatPrice(tradeSuggestion.entry)}
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-zinc-500">
-                            EMA-led pullback entry
-                          </p>
-                        </div>
+                      <div className="mt-3 grid gap-2">
                         <div className="grid grid-cols-2 gap-2">
-                          <div className="rounded-2xl bg-white/80 px-4 py-3">
+                          <div className="rounded-2xl bg-white/80 px-3 py-3">
                             <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                              TP
+                              Aggressive
                             </p>
                             <p className="mt-1 text-base font-semibold text-zinc-950">
-                              {formatPrice(tradeSuggestion.takeProfit)}
+                              {formatPrice(tradeSuggestion.aggressiveEntry)}
+                            </p>
+                            <p className="mt-1 text-[11px] leading-5 text-zinc-500">
+                              SL {formatPrice(tradeSuggestion.flexiblePlan.stopLoss)} | TP {formatPrice(tradeSuggestion.flexiblePlan.takeProfit)}
                             </p>
                           </div>
-                          <div className="rounded-2xl bg-white/80 px-4 py-3">
+                          <div className="rounded-2xl bg-white/80 px-3 py-3">
                             <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                              SL
+                              Safe
                             </p>
                             <p className="mt-1 text-base font-semibold text-zinc-950">
-                              {formatPrice(tradeSuggestion.stopLoss)}
+                              {formatPrice(tradeSuggestion.safeEntry)}
+                            </p>
+                            <p className="mt-1 text-[11px] leading-5 text-zinc-500">
+                              SL {formatPrice(tradeSuggestion.safePlan.stopLoss)} | TP {formatPrice(tradeSuggestion.safePlan.takeProfit)}
                             </p>
                           </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs leading-5 text-zinc-600">
+                          <p className="rounded-2xl bg-white/70 px-3 py-2">
+                            Safe risk: ${tradeSuggestion.safePlan.riskAmount?.toFixed(2) ?? "N/A"}
+                          </p>
+                          <p className="rounded-2xl bg-white/70 px-3 py-2">
+                            Fast risk: ${tradeSuggestion.flexiblePlan.riskAmount?.toFixed(2) ?? "N/A"}
+                          </p>
                         </div>
                       </div>
 
-                      <p className="mt-auto pt-3 text-sm leading-6 text-zinc-700">
+                      <p className="mt-auto pt-3 text-sm leading-5 text-zinc-700">
                         {tradeSuggestion.summary}
                       </p>
-                      {tradeSuggestion.riskAmount !== null ? (
-                        <p className="mt-1 text-xs leading-5 text-zinc-600">
-                          Estimated risk distance: ${tradeSuggestion.riskAmount.toFixed(2)}.
-                        </p>
-                      ) : null}
+                      <p className="mt-2 text-xs leading-5 text-zinc-500">
+                        {isUsingLiveCandles
+                          ? `These TP and SL levels refresh with the live candle feed every 10 seconds${liveMarket?.asOf ? ` from ${liveMarket.asOf}` : ""}.`
+                          : "These TP and SL levels stay fixed until you change the CSV or switch back to live candles."}
+                      </p>
                     </div>
                   ) : null}
 
                   {prediction ? (
-                    <div className="flex min-h-56 flex-col rounded-[1.5rem] border border-sky-200 bg-sky-50/80 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-h-44 flex-col rounded-[1.5rem] border border-sky-200 bg-sky-50/80 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-medium text-sky-900">
                           Forecast
                         </p>
                         <span className="rounded-full border border-sky-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-                          {prediction.confidenceLabel} confidence
+                          {prediction.confidenceLabel}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm leading-6 text-sky-900">
+                      <p className="mt-2 text-sm leading-5 text-sky-900">
                         {prediction.summary}
                       </p>
                       <p className="mt-auto pt-3 text-xs leading-5 text-sky-800">
-                        Projected candles are derived from recent candle range,
-                        body size, and the current score bias. They are illustrative,
-                        not live market data.
+                        Illustrative projection from recent range, body size, and score bias.
                       </p>
                     </div>
                   ) : null}
@@ -424,59 +453,99 @@ export function Welcome({
             </section>
           </div>
 
-          <div>
-            <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-zinc-200/60 backdrop-blur">
-              <h2 className="text-xl font-semibold text-zinc-950">Key levels</h2>
-
-              {result ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">Last close</span>
-                    <span className="font-semibold text-zinc-950">
-                      {result.last.close.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">Support</span>
-                    <span className="font-semibold text-zinc-950">
-                      {result.support.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">Resistance</span>
-                    <span className="font-semibold text-zinc-950">
-                      {result.resistance.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">EMA 9</span>
-                    <span className="font-semibold text-zinc-950">
-                      {result.movingAverageSignal.ema9?.toFixed(2) ?? "N/A"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">EMA 21</span>
-                    <span className="font-semibold text-zinc-950">
-                      {result.movingAverageSignal.ema21?.toFixed(2) ?? "N/A"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
-                    <span className="text-sm text-zinc-500">EMA 50</span>
-                    <span className="font-semibold text-zinc-950">
-                      {result.movingAverageSignal.ema50?.toFixed(2) ?? "N/A"}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-4 text-sm leading-7 text-zinc-600">
-                  Once enough candles are present, support, resistance, and moving
-                  average values will appear here.
+          <section className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg shadow-zinc-200/60 backdrop-blur">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-zinc-950">Levels And Retracements</h2>
+                <p className="text-sm text-zinc-500">
+                  Compact readout for price structure, EMA stack, and Fib swing levels.
                 </p>
-              )}
-            </section>
-          </div>
+              </div>
+            </div>
 
-          <div className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-zinc-200/60 backdrop-blur">
+            {result ? (
+              <div className="mt-4 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-6">
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Last close</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.last.close.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Support</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.support.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Resistance</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.resistance.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">EMA 9</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.movingAverageSignal.ema9?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">EMA 21</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.movingAverageSignal.ema21?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">EMA 50</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.movingAverageSignal.ema50?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Fib 38.2%</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.fibonacci.level382?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Fib 50%</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.fibonacci.level500?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Fib 61.8%</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.fibonacci.level618?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Swing high</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.fibonacci.swingHigh?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Swing low</span>
+                  <span className="font-semibold text-zinc-950">
+                    {result.fibonacci.swingLow?.toFixed(2) ?? "N/A"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-zinc-50 px-4 py-3">
+                  <span className="text-sm text-zinc-500">Target model</span>
+                  <span className="font-semibold text-zinc-950">
+                    ${tradeSuggestion?.targetProfit.toFixed(0) ?? "N/A"}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm leading-7 text-zinc-600">
+                Once enough candles are present, the compact levels and retracement readout will appear here.
+              </p>
+            )}
+          </section>
+
+          <div className="rounded-[2rem] border border-white/70 bg-white/90 p-5 shadow-lg shadow-zinc-200/60 backdrop-blur">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-xl font-semibold text-zinc-950">OHLC CSV Input</h2>
@@ -488,7 +557,10 @@ export function Welcome({
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => setCsv(sampleData)}
+                  onClick={() => {
+                    setDataMode("manual");
+                    setCsv(sampleData);
+                  }}
                   className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
                 >
                   Load sample
@@ -496,7 +568,10 @@ export function Welcome({
                 {liveCsv ? (
                   <button
                     type="button"
-                    onClick={() => setCsv(liveCsv)}
+                    onClick={() => {
+                      setDataMode("live");
+                      setCsv(liveCsv);
+                    }}
                     className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
                   >
                     Use live candles
@@ -507,7 +582,10 @@ export function Welcome({
 
             <textarea
               value={csv}
-              onChange={(event) => setCsv(event.target.value)}
+              onChange={(event) => {
+                setDataMode("manual");
+                setCsv(event.target.value);
+              }}
               className="mt-5 min-h-[22rem] w-full rounded-[1.5rem] border border-zinc-200 bg-zinc-50/80 px-4 py-4 font-mono text-sm leading-6 text-zinc-800 outline-none transition focus:border-amber-400 focus:bg-white focus:ring-4 focus:ring-amber-100"
               aria-label="Gold OHLC CSV input"
             />

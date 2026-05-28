@@ -50,10 +50,35 @@ export type MovingAverageOverlay = {
   ema50: Array<number | null>;
 };
 
+export type FibonacciRetracement = {
+  direction: Trend;
+  level382: number | null;
+  level500: number | null;
+  level618: number | null;
+  swingHigh: number | null;
+  swingLow: number | null;
+  label: string;
+  score: number;
+};
+
+export type EntryLevels = {
+  aggressive: number | null;
+  safe: number | null;
+};
+
+export type TradeBracket = {
+  entry: number | null;
+  riskAmount: number | null;
+  stopLoss: number | null;
+  takeProfit: number | null;
+};
+
 export type AnalysisResult = {
   confirmation: ConfluenceFactor;
   confluence: ConfluenceFactor[];
   confluenceSummary: string;
+  fibonacci: FibonacciRetracement;
+  entryLevels: EntryLevels;
   last: Candle;
   ma8: number | null;
   ma20: number | null;
@@ -79,8 +104,13 @@ export type PredictionResult = {
 
 export type TradeSuggestion = {
   action: "buy" | "sell" | "wait";
+  aggressiveEntry: number | null;
+  aggressivePlan: TradeBracket;
   entry: number;
+  flexiblePlan: TradeBracket;
   stopLoss: number | null;
+  safeEntry: number | null;
+  safePlan: TradeBracket;
   takeProfit: number | null;
   targetProfit: number;
   riskAmount: number | null;
@@ -332,6 +362,16 @@ function getLatestDefinedValue(values: Array<number | null>): number | null {
   }
 
   return null;
+}
+
+function averageDefinedValues(values: Array<number | null>): number | null {
+  const definedValues = values.filter((value): value is number => value !== null);
+
+  if (definedValues.length === 0) {
+    return null;
+  }
+
+  return definedValues.reduce((sum, value) => sum + value, 0) / definedValues.length;
 }
 
 export function getMovingAverageOverlay(candles: Candle[]): MovingAverageOverlay {
@@ -923,6 +963,155 @@ function getMovingAverageSignal(candles: Candle[]): MovingAverageSignal {
   };
 }
 
+function getFibonacciRetracement(candles: Candle[], trend: Trend): FibonacciRetracement {
+  const swingCandles = candles.slice(-24);
+
+  if (swingCandles.length < 6 || trend === "neutral") {
+    return {
+      direction: "neutral",
+      level382: null,
+      level500: null,
+      level618: null,
+      swingHigh: null,
+      swingLow: null,
+      label: "Fibonacci retracement is waiting for a clearer directional swing.",
+      score: 0,
+    };
+  }
+
+  const swingHigh = Math.max(...swingCandles.map((candle) => candle.high));
+  const swingLow = Math.min(...swingCandles.map((candle) => candle.low));
+  const swingRange = swingHigh - swingLow;
+
+  if (swingRange <= 0) {
+    return {
+      direction: "neutral",
+      level382: null,
+      level500: null,
+      level618: null,
+      swingHigh: null,
+      swingLow: null,
+      label: "Fibonacci retracement could not be derived from the current swing.",
+      score: 0,
+    };
+  }
+
+  if (trend === "bullish") {
+    return {
+      direction: "bullish",
+      level382: swingHigh - swingRange * 0.382,
+      level500: swingHigh - swingRange * 0.5,
+      level618: swingHigh - swingRange * 0.618,
+      swingHigh,
+      swingLow,
+      label: "Bullish Fibonacci retracement is active. Pullbacks into 38.2%, 50%, and 61.8% can improve long entries.",
+      score: 0,
+    };
+  }
+
+  return {
+    direction: "bearish",
+    level382: swingLow + swingRange * 0.382,
+    level500: swingLow + swingRange * 0.5,
+    level618: swingLow + swingRange * 0.618,
+    swingHigh,
+    swingLow,
+    label: "Bearish Fibonacci retracement is active. Pullbacks into 38.2%, 50%, and 61.8% can improve short entries.",
+    score: 0,
+  };
+}
+
+function getFibonacciConfluence(
+  fibonacci: FibonacciRetracement,
+  lastClose: number,
+  averageRange: number,
+): ConfluenceFactor {
+  const watchedLevels = [fibonacci.level500, fibonacci.level618].filter((value): value is number => value !== null);
+  const isNearWatchedLevel = watchedLevels.some((value) => Math.abs(lastClose - value) <= averageRange * 0.75);
+
+  if (fibonacci.direction === "bullish" && isNearWatchedLevel) {
+    return {
+      bias: "bullish",
+      label: "Price is pulling back into bullish Fibonacci value zones.",
+      score: 1,
+    };
+  }
+
+  if (fibonacci.direction === "bearish" && isNearWatchedLevel) {
+    return {
+      bias: "bearish",
+      label: "Price is pulling back into bearish Fibonacci value zones.",
+      score: -1,
+    };
+  }
+
+  return {
+    bias: "neutral",
+    label: fibonacci.label,
+    score: 0,
+  };
+}
+
+function getEntryLevels(
+  trend: Trend,
+  movingAverageSignal: MovingAverageSignal,
+  fibonacci: FibonacciRetracement,
+): EntryLevels {
+  if (trend === "bullish") {
+    return {
+      aggressive: averageDefinedValues([movingAverageSignal.ema9, fibonacci.level382]),
+      safe: averageDefinedValues([movingAverageSignal.ema21, fibonacci.level500, fibonacci.level618]),
+    };
+  }
+
+  if (trend === "bearish") {
+    return {
+      aggressive: averageDefinedValues([movingAverageSignal.ema9, fibonacci.level382]),
+      safe: averageDefinedValues([movingAverageSignal.ema21, fibonacci.level500, fibonacci.level618]),
+    };
+  }
+
+  return {
+    aggressive: movingAverageSignal.preferredEntry,
+    safe: averageDefinedValues([movingAverageSignal.ema21, fibonacci.level500]),
+  };
+}
+
+function createWaitPlan(entry: number | null): TradeBracket {
+  return {
+    entry,
+    riskAmount: null,
+    stopLoss: null,
+    takeProfit: null,
+  };
+}
+
+function createBuyPlan(
+  entry: number,
+  stopLoss: number,
+  takeProfit: number,
+): TradeBracket {
+  return {
+    entry,
+    riskAmount: Math.max(entry - stopLoss, 0.1),
+    stopLoss,
+    takeProfit,
+  };
+}
+
+function createSellPlan(
+  entry: number,
+  stopLoss: number,
+  takeProfit: number,
+): TradeBracket {
+  return {
+    entry,
+    riskAmount: Math.max(stopLoss - entry, 0.1),
+    stopLoss,
+    takeProfit,
+  };
+}
+
 function getConfluenceSummary(score: number, confluence: ConfluenceFactor[]): string {
   const supportiveFactors = confluence.filter((factor) => factor.score > 0).length;
   const defensiveFactors = confluence.filter((factor) => factor.score < 0).length;
@@ -992,6 +1181,9 @@ export function analyzeCandles(candles: Candle[]): AnalysisResult | null {
     : marketStructure.label === "downtrend" || lowerLows || movingAverageBias === "bearish"
       ? "bearish"
       : "neutral";
+  const fibonacci = getFibonacciRetracement(candles, trend);
+  const fibonacciConfluence = getFibonacciConfluence(fibonacci, last.close, Math.max(getAverageRange(candles), 0.1));
+  const entryLevels = getEntryLevels(trend, movingAverageSignal, fibonacci);
 
   const nearSupport = isInsideZone(last.close, supportZone);
   const nearResistance = isInsideZone(last.close, resistanceZone);
@@ -1021,6 +1213,7 @@ export function analyzeCandles(candles: Candle[]): AnalysisResult | null {
           ? -pattern.score
           : 0,
     },
+    fibonacciConfluence,
     confirmation,
     rangeFilter,
   ];
@@ -1060,6 +1253,8 @@ export function analyzeCandles(candles: Candle[]): AnalysisResult | null {
     confirmation,
     confluence,
     confluenceSummary: getConfluenceSummary(score, confluence),
+    fibonacci,
+    entryLevels,
     last,
     ma8,
     ma20,
@@ -1090,33 +1285,66 @@ export function getTradeSuggestion(
   }
 
   const entry = analysis.last.close;
-  const suggestedEntry = analysis.movingAverageSignal.preferredEntry ?? entry;
+  const aggressiveEntry = analysis.entryLevels.aggressive ?? analysis.movingAverageSignal.preferredEntry ?? entry;
+  const safeEntry = analysis.entryLevels.safe ?? aggressiveEntry;
+  const suggestedEntry = safeEntry;
   const averageRange = Math.max(getAverageRange(candles), 0.1);
   const intervalMinutes = getCandleIntervalMinutes(candles, interval);
   const resolvedTargetProfit = targetProfit ?? getDynamicTargetProfit(candles, interval);
   const riskAmount = intervalMinutes !== null && intervalMinutes <= 15
-    ? clamp(averageRange * 1.15, 3, 10)
+    ? clamp(averageRange * 1.05, 2.5, 9)
     : intervalMinutes !== null && intervalMinutes <= 60
-      ? clamp(averageRange * 1.1, 6, 14)
+      ? clamp(averageRange * 1.05, 5, 13)
       : clamp(averageRange * 0.9, 10, 18);
-  const targetText = `$${resolvedTargetProfit.toFixed(2)}`;
-  const zoneBuffer = averageRange * (isIntradayInterval(intervalMinutes) ? 0.6 : 0.35);
+  const zoneBuffer = averageRange * (isIntradayInterval(intervalMinutes) ? 0.35 : 0.25);
   const buyStopLoss = Math.min(suggestedEntry - riskAmount, analysis.supportZone.bottom - zoneBuffer);
   const sellStopLoss = Math.max(suggestedEntry + riskAmount, analysis.resistanceZone.top + zoneBuffer);
   const buyRisk = suggestedEntry - buyStopLoss;
   const sellRisk = sellStopLoss - suggestedEntry;
   const tradeGuardReason = getTradeGuardReason(analysis, intervalMinutes);
-  const minimumRewardRisk = isIntradayInterval(intervalMinutes) ? 1.15 : 1;
+  const minimumRewardRisk = isIntradayInterval(intervalMinutes) ? 0.8 : 0.9;
+  const safeRewardMultiplier = isIntradayInterval(intervalMinutes) ? 1.45 : 1.7;
+  const flexibleRewardMultiplier = isIntradayInterval(intervalMinutes) ? 1.05 : 1.2;
+  const aggressiveBuyStopLoss = Math.min(aggressiveEntry - riskAmount * 0.75, analysis.supportZone.bottom - zoneBuffer * 0.45);
+  const aggressiveSellStopLoss = Math.max(aggressiveEntry + riskAmount * 0.75, analysis.resistanceZone.top + zoneBuffer * 0.45);
+  const flexibleBuyPlan = createBuyPlan(
+    aggressiveEntry,
+    aggressiveBuyStopLoss,
+    aggressiveEntry + Math.max(resolvedTargetProfit * flexibleRewardMultiplier, resolvedTargetProfit),
+  );
+  const flexibleSellPlan = createSellPlan(
+    aggressiveEntry,
+    aggressiveSellStopLoss,
+    aggressiveEntry - Math.max(resolvedTargetProfit * flexibleRewardMultiplier, resolvedTargetProfit),
+  );
+  const safeBuyPlan = createBuyPlan(
+    safeEntry,
+    buyStopLoss,
+    safeEntry + Math.max(resolvedTargetProfit * safeRewardMultiplier, buyRisk * minimumRewardRisk),
+  );
+  const safeSellPlan = createSellPlan(
+    safeEntry,
+    sellStopLoss,
+    safeEntry - Math.max(resolvedTargetProfit * safeRewardMultiplier, sellRisk * minimumRewardRisk),
+  );
 
   if (tradeGuardReason !== null) {
+    const previewPlan = analysis.score >= 0 ? safeBuyPlan : safeSellPlan;
+    const previewFlexiblePlan = analysis.score >= 0 ? flexibleBuyPlan : flexibleSellPlan;
+
     return {
       action: "wait",
+      aggressiveEntry,
+      aggressivePlan: previewFlexiblePlan,
       entry: suggestedEntry,
-      stopLoss: null,
-      takeProfit: null,
+      flexiblePlan: previewFlexiblePlan,
+      stopLoss: previewPlan.stopLoss,
+      safeEntry,
+      safePlan: previewPlan,
+      takeProfit: previewPlan.takeProfit,
       targetProfit: resolvedTargetProfit,
-      riskAmount: null,
-      summary: `${tradeGuardReason} Wait for a cleaner setup.`,
+      riskAmount: previewPlan.riskAmount,
+      summary: `${tradeGuardReason} Preview brackets are shown, but waiting is still safer.`,
     };
   }
 
@@ -1124,23 +1352,33 @@ export function getTradeSuggestion(
     if (resolvedTargetProfit / buyRisk < minimumRewardRisk) {
       return {
         action: "wait",
+        aggressiveEntry,
+        aggressivePlan: flexibleBuyPlan,
         entry: suggestedEntry,
-        stopLoss: null,
-        takeProfit: null,
+        flexiblePlan: flexibleBuyPlan,
+        stopLoss: safeBuyPlan.stopLoss,
+        safeEntry,
+        safePlan: safeBuyPlan,
+        takeProfit: safeBuyPlan.takeProfit,
         targetProfit: resolvedTargetProfit,
-        riskAmount: null,
-        summary: "Buy setup is filtered out because the projected reward is too small relative to the safer stop placement.",
+        riskAmount: safeBuyPlan.riskAmount,
+        summary: "Buy setup is not fully cleared yet, but preview SL/TP brackets are shown with looser reward-to-risk rules.",
       };
     }
 
     return {
       action: "buy",
+      aggressiveEntry,
+      aggressivePlan: flexibleBuyPlan,
       entry: suggestedEntry,
+      flexiblePlan: flexibleBuyPlan,
       stopLoss: buyStopLoss,
-      takeProfit: suggestedEntry + resolvedTargetProfit,
+      safeEntry,
+      safePlan: safeBuyPlan,
+      takeProfit: safeBuyPlan.takeProfit,
       targetProfit: resolvedTargetProfit,
-      riskAmount: buyRisk,
-      summary: `Buy bias from trend, pattern, and EMA confluence. Preferred entry is near the EMA pullback zone, with the stop placed beyond the demand zone.`,
+      riskAmount: safeBuyPlan.riskAmount,
+      summary: "Buy bias from trend, pattern, EMA stack, and Fibonacci pullback confluence. The safe entry leans toward deeper value, while the aggressive entry leans toward an earlier pullback.",
     };
   }
 
@@ -1148,34 +1386,49 @@ export function getTradeSuggestion(
     if (resolvedTargetProfit / sellRisk < minimumRewardRisk) {
       return {
         action: "wait",
+        aggressiveEntry,
+        aggressivePlan: flexibleSellPlan,
         entry: suggestedEntry,
-        stopLoss: null,
-        takeProfit: null,
+        flexiblePlan: flexibleSellPlan,
+        stopLoss: safeSellPlan.stopLoss,
+        safeEntry,
+        safePlan: safeSellPlan,
+        takeProfit: safeSellPlan.takeProfit,
         targetProfit: resolvedTargetProfit,
-        riskAmount: null,
-        summary: "Sell setup is filtered out because the projected reward is too small relative to the safer stop placement.",
+        riskAmount: safeSellPlan.riskAmount,
+        summary: "Sell setup is not fully cleared yet, but preview SL/TP brackets are shown with looser reward-to-risk rules.",
       };
     }
 
     return {
       action: "sell",
+      aggressiveEntry,
+      aggressivePlan: flexibleSellPlan,
       entry: suggestedEntry,
+      flexiblePlan: flexibleSellPlan,
       stopLoss: sellStopLoss,
-      takeProfit: suggestedEntry - resolvedTargetProfit,
+      safeEntry,
+      safePlan: safeSellPlan,
+      takeProfit: safeSellPlan.takeProfit,
       targetProfit: resolvedTargetProfit,
-      riskAmount: sellRisk,
-      summary: `Sell bias from trend, pattern, and EMA confluence. Preferred entry is near the EMA pullback zone, with the stop placed beyond the supply zone.`,
+      riskAmount: safeSellPlan.riskAmount,
+      summary: "Sell bias from trend, pattern, EMA stack, and Fibonacci pullback confluence. The safe entry leans toward deeper value, while the aggressive entry leans toward an earlier pullback.",
     };
   }
 
   return {
     action: "wait",
+    aggressiveEntry,
+    aggressivePlan: analysis.score >= 0 ? flexibleBuyPlan : flexibleSellPlan,
     entry: suggestedEntry,
-    stopLoss: null,
-    takeProfit: null,
+    flexiblePlan: analysis.score >= 0 ? flexibleBuyPlan : flexibleSellPlan,
+    stopLoss: analysis.score >= 0 ? safeBuyPlan.stopLoss : safeSellPlan.stopLoss,
+    safeEntry,
+    safePlan: analysis.score >= 0 ? safeBuyPlan : safeSellPlan,
+    takeProfit: analysis.score >= 0 ? safeBuyPlan.takeProfit : safeSellPlan.takeProfit,
     targetProfit: resolvedTargetProfit,
-    riskAmount: null,
-    summary: "No clean confluence setup yet. Wait for trend, zone, pattern, and confirmation to align.",
+    riskAmount: analysis.score >= 0 ? safeBuyPlan.riskAmount : safeSellPlan.riskAmount,
+    summary: "No clean confluence setup yet. Watch the suggested brackets, but wait for the rest of the signals to align before treating them as active trade plans.",
   };
 }
 
