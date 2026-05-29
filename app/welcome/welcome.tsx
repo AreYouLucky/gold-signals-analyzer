@@ -161,7 +161,7 @@ export function Welcome({
       if (document.visibilityState === "visible") {
         revalidate();
       }
-    }, 10_000);
+    }, 20_000);
 
     return () => {
       window.clearInterval(refreshTimer);
@@ -225,7 +225,7 @@ export function Welcome({
                   </p>
                   {hasLiveFeed ? (
                     <p className="mt-1 text-xs uppercase tracking-[0.16em] text-zinc-400">
-                      Auto-refreshes every 10 seconds
+                      Auto-refreshes every 20 seconds
                     </p>
                   ) : null}
                 </div>
@@ -420,7 +420,7 @@ export function Welcome({
                       </p>
                       <p className="mt-2 text-xs leading-5 text-zinc-500">
                         {isUsingLiveCandles
-                          ? `These TP and SL levels refresh with the live candle feed every 10 seconds${liveMarket?.asOf ? ` from ${liveMarket.asOf}` : ""}.`
+                          ? `These TP and SL levels refresh with the live candle feed every 20 seconds${liveMarket?.asOf ? ` from ${liveMarket.asOf}` : ""}.`
                           : "These TP and SL levels stay fixed until you change the CSV or switch back to live candles."}
                       </p>
                     </div>
